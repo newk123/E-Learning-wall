@@ -1,0 +1,152 @@
+#include <Adafruit_GFX.h>
+#include <MCUFRIEND_kbv.h>
+#include <DFRobotDFPlayerMini.h>
+
+MCUFRIEND_kbv tft;
+DFRobotDFPlayerMini myDFPlayer;
+
+// 16-bit வண்ணக் குறியீடுகள்
+#define BLACK   0x0000
+#define BLUE    0x001F
+#define RED     0xF800
+#define GREEN   0x07E0
+#define CYAN    0x07FF
+#define MAGENTA 0xF81F
+#define YELLOW  0xFFE0
+#define WHITE   0xFFFF
+
+// A முதல் Z வரை 26 சுவிட்ச் பின்கள் (Mega Pins 22 to 47)
+const int switchPins[26] = {
+  22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+  35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47
+};
+
+// ஒவ்வொரு சுவிட்சின் முந்தைய நிலையை சேமிக்கும் அரே
+int lastSwitchState[26];
+
+// எழுத்துக்களுக்கான சொற்கள் (பாடலுடன் பொருந்தும்படி மாற்றிக்கொள்ளலாம்)
+const char* alphabetTitles[26] = {
+  "Apple", "Ball", "Cat", "Dog", "Elephant",
+  "Fish", "Grapes", "Hen", "Ice Cream", "Jug",
+  "Kite", "Lion", "Monkey", "Nest", "Orange",
+  "Parrot", "Queen", "Rabbit", "Sun", "Tiger",
+  "Umbrella", "Van", "Watch", "Xylophone", "Yak", "Zebra"
+};
+
+int currentlyPlayingIndex = -1;
+
+void setup() {
+  Serial.begin(9600);
+  Serial1.begin(9600); // DFPlayer Mini Serial (Mega Pins 18-TX, 19-RX)
+
+  // 26 சுவிட்ச் பின்களை துவக்குதல்
+  for (int i = 0; i < 26; i++) {
+    pinMode(switchPins[i], INPUT_PULLUP);
+    lastSwitchState[i] = digitalRead(switchPins[i]); // ஆரம்ப நிலையை பதிவு செய்தல்
+  }
+
+  // 3.5" TFT Display துவக்கம்
+  uint16_t ID = tft.readID();
+  if (ID == 0xD3D3) ID = 0x9486;
+  tft.begin(ID);
+  tft.setRotation(1); // Landscape view
+  showIdleScreen();
+
+  // DFPlayer Mini துவக்கம்
+  Serial.println(F("Initializing DFPlayer..."));
+  if (!myDFPlayer.begin(Serial1)) {
+    Serial.println(F("DFPlayer Mini Not Detected!"));
+  } else {
+    Serial.println(F("DFPlayer Mini Ready."));
+    myDFPlayer.volume(28); // ஒலி அளவு (0 to 30)
+  }
+}
+
+void loop() {
+  // 26 டோகிள் சுவிட்சுகளின் நிலையையும் தொடர்ச்சியாகக் கண்காணிக்கும் லூப்
+  for (int i = 0; i < 26; i++) {
+    int currentState = digitalRead(switchPins[i]);
+
+    // ஒரு சுவிட்ச் ஆஃப்-லிருந்து ஆன் (HIGH to LOW) நிலைக்கு மாறினால்
+    if (currentState == LOW && lastSwitchState[i] == HIGH) {
+      delay(40); // Debounce delay
+      if (digitalRead(switchPins[i]) == LOW) {
+        currentlyPlayingIndex = i;
+        playAlphabetSong(i);
+      }
+    }
+    
+    // சுவிட்சின் தற்போதைய நிலையை சேமித்தல்
+    lastSwitchState[i] = currentState;
+  }
+}
+
+// எழுத்தைக் காண்பித்து பாடலை இயக்கும் செயல்முறை
+void playAlphabetSong(int index) {
+  char letter = 'A' + index;
+  int trackNumber = index + 1; // 1 to 26
+
+  // 1. திரையில் எழுத்து மற்றும் பாடல் தலைப்பைக் காட்டுதல்
+  renderDisplay(letter, alphabetTitles[index]);
+
+  // 2. DFPlayer-ல் குறிப்பிட்ட பாடலை இயக்குதல்
+  myDFPlayer.playMp3Folder(trackNumber);
+
+  Serial.print(F("Switch Activated: "));
+  Serial.print(letter);
+  Serial.print(F(" | Song Track: "));
+  Serial.println(trackNumber);
+}
+
+// 3.5" TFT திரையில் அழகாக வரையும் முறை
+void renderDisplay(char letter, const char* title) {
+  tft.fillScreen(BLACK);
+
+  // வண்ண பார்டர்
+  tft.drawRoundRect(8, 8, 464, 304, 8, CYAN);
+  tft.drawRoundRect(10, 10, 460, 300, 8, WHITE);
+
+  // Capital Letter
+  tft.setTextSize(14);
+  tft.setTextColor(YELLOW);
+  tft.setCursor(185, 35);
+  tft.print(letter);
+
+  // Small Letter
+  char small = letter + 32;
+  tft.setTextSize(7);
+  tft.setTextColor(GREEN);
+  tft.setCursor(305, 95);
+  tft.print(small);
+
+  // அடிக்குறிப்பு / பாடல் சொல்
+  tft.setTextSize(4);
+  tft.setTextColor(WHITE);
+  tft.setCursor(60, 220);
+  tft.print(letter);
+  tft.print(" - ");
+  tft.setTextColor(MAGENTA);
+  tft.print(title);
+  tft.print(" Song");
+}
+
+// ஆரம்ப முகப்புத் திரை
+void showIdleScreen() {
+  tft.fillScreen(BLACK);
+  tft.drawRoundRect(8, 8, 464, 304, 8, YELLOW);
+
+  tft.setTextSize(4);
+  tft.setTextColor(CYAN);
+  tft.setCursor(50, 70);
+  tft.print("ALPHABET WALL");
+
+  tft.setTextSize(3);
+  tft.setTextColor(GREEN);
+  tft.setCursor(95, 145);
+  tft.print("Interactive Songs");
+
+  tft.setTextSize(2);
+  tft.setTextColor(WHITE);
+  tft.setCursor(90, 225);
+  tft.print("Flip any 3D Letter Switch!");
+}
